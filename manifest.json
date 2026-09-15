@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "id": "dev.reuk.ports",
+  "name": "Ports",
+  "version": "0.1.0",
+  "author": "reuk",
+  "license": "MIT",
+  "description": "What is listening on this machine, who owns it, and how far it reaches.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Ports",
+    "description": "Listening ports grouped into your processes, containers and system, with open, copy, stop and terminate.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 5,
+      "iconAlert": "Network",
+      "ignoredPorts": "53,631,5353",
+      "hiddenNames": "",
+      "showSystem": true,
+      "showGuesses": true,
+      "includeDocker": true,
+      "includeUdp": false,
+      "confirmActions": true
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 2,
+        "max": 120,
+        "step": 1,
+        "defaultValue": 5,
+        "description": "Seconds between scans. Opening the panel always scans immediately."
+      },
+      {
+        "key": "iconAlert",
+        "type": "enum",
+        "label": "Icon alert",
+        "options": [
+          "Network",
+          "Network and VPN",
+          "Never"
+        ],
+        "defaultValue": "Network",
+        "description": "When the bar icon turns the urgent colour. Never keeps it the same colour as the rest of the bar."
+      },
+      {
+        "key": "ignoredPorts",
+        "type": "string",
+        "label": "Ignored ports",
+        "defaultValue": "53,631,5353",
+        "description": "Comma-separated ports or ranges to leave out, e.g. 53,631,8000-8010."
+      },
+      {
+        "key": "hiddenNames",
+        "type": "string",
+        "label": "Hidden names",
+        "defaultValue": "",
+        "description": "Comma-separated process, container, service or guessed names to leave out, e.g. spotify,kdeconnectd."
+      },
+      {
+        "key": "showSystem",
+        "type": "boolean",
+        "label": "Show system listeners",
+        "defaultValue": true,
+        "description": "List sockets owned by root or other users. Off shows only your processes and containers."
+      },
+      {
+        "key": "showGuesses",
+        "type": "boolean",
+        "label": "Guess unnamed services",
+        "defaultValue": true,
+        "description": "Name sockets with a hidden owner after the service that usually uses the port."
+      },
+      {
+        "key": "includeDocker",
+        "type": "boolean",
+        "label": "Include Docker",
+        "defaultValue": true,
+        "description": "Attribute published ports to the containers that own them."
+      },
+      {
+        "key": "includeUdp",
+        "type": "boolean",
+        "label": "Include UDP",
+        "defaultValue": false,
+        "description": "List UDP sockets as well as TCP listeners."
+      },
+      {
+        "key": "confirmActions",
+        "type": "boolean",
+        "label": "Confirm stop and kill",
+        "defaultValue": true,
+        "description": "Ask before terminating, killing or stopping. Off acts immediately."
+      }
+    ]
+  }
+}
