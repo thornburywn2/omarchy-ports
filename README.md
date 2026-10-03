@@ -55,7 +55,7 @@ Every row says how far its port reaches, from its bind addresses:
 | Marker | Meaning |
 |---|---|
 | red dot, `LAN` | reachable from the network — a wildcard or LAN address |
-| grey dot, `VPN` | bound only to a Tailscale or NetBird address |
+| grey dot, `VPN` | bound only to a Tailscale or NetBird address, or to this machine's address on a WireGuard interface |
 | nothing | loopback, this machine only |
 
 The bar icon turns red while anything is reachable from the network, or never,

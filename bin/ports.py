@@ -190,9 +190,11 @@ def parse_ignored(spec: str) -> set[int]:
     return ignored
 
 
-def classify(address: str) -> str:
+def classify(address: str, vpn_addresses: frozenset[str] = frozenset()) -> str:
     """How far a bind address reaches: local, overlay (VPN only), or network.
-    Anything that cannot be proven local is assumed to reach the network."""
+    Anything that cannot be proven local is assumed to reach the network.
+    vpn_addresses are this machine's own addresses on VPN interfaces (see
+    wireguard_addresses), which only that VPN's peers can reach."""
     if address in WILDCARDS:
         return "network"
     try:
@@ -201,9 +203,58 @@ def classify(address: str) -> str:
         return "network"
     if ip.is_loopback:
         return "local"
-    if any(ip in network for network in OVERLAY_NETWORKS):
+    if any(ip in network for network in OVERLAY_NETWORKS) or str(ip) in vpn_addresses:
         return "overlay"
     return "network"
+
+
+def parse_interface_addresses(text: str) -> set[str]:
+    """`ip -j addr show dev X` -> the interface's own addresses."""
+    try:
+        interfaces = json.loads(text or "[]")
+    except ValueError:
+        return set()
+    found = set()
+    for interface in interfaces if isinstance(interfaces, list) else []:
+        for info in interface.get("addr_info", []) if isinstance(interface, dict) else []:
+            local = info.get("local") if isinstance(info, dict) else None
+            try:
+                found.add(str(ipaddress.ip_address(str(local))))
+            except ValueError:
+                continue
+    return found
+
+
+def wireguard_interfaces(sysfs: str = "/sys/class/net") -> list[str]:
+    """Interfaces the kernel reports as WireGuard (DEVTYPE=wireguard)."""
+    names = []
+    try:
+        entries = sorted(os.listdir(sysfs))
+    except OSError:
+        return names
+    for name in entries:
+        try:
+            uevent = Path(sysfs, name, "uevent").read_text(errors="replace")[:4096]
+        except OSError:
+            continue
+        if "DEVTYPE=wireguard" in uevent.splitlines():
+            names.append(name)
+    return names
+
+
+def wireguard_addresses(sysfs: str = "/sys/class/net", run=None) -> frozenset[str]:
+    """This machine's addresses on WireGuard interfaces. A socket bound only
+    to one of them is reachable from that tunnel's peers, not the network."""
+    run = run or run_bounded
+    found: set[str] = set()
+    for name in wireguard_interfaces(sysfs):
+        try:
+            result = run(["ip", "-j", "addr", "show", "dev", name], timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            found |= parse_interface_addresses(result.stdout)
+    return frozenset(found)
 
 
 def split_endpoint(text: str) -> tuple[str, int] | None:
@@ -297,7 +348,8 @@ def listener_url(proto: str, port: int, addresses: list[str]) -> str | None:
     return f"http://{host}:{port}"
 
 
-def build_listeners(sockets: list[dict], containers: list[dict], describe, ignored: set[int]) -> list[dict]:
+def build_listeners(sockets: list[dict], containers: list[dict], describe, ignored: set[int],
+                    vpn_addresses: frozenset[str] = frozenset()) -> list[dict]:
     """Sockets and container bindings -> one listener per owner per port.
 
     Grouping by owner rather than by address is what folds the IPv4 and IPv6
@@ -359,7 +411,7 @@ def build_listeners(sockets: list[dict], containers: list[dict], describe, ignor
             "proto": entry["proto"],
             "port": entry["port"],
             "addresses": entry["addresses"],
-            "scope": max((classify(a) for a in entry["addresses"]), key=SCOPE_RANK.__getitem__),
+            "scope": max((classify(a, vpn_addresses) for a in entry["addresses"]), key=SCOPE_RANK.__getitem__),
             "url": url,
             "owner": owner,
             "actions": actions,
@@ -584,7 +636,8 @@ def scan(include_udp: bool, include_docker: bool, ignored: set[int]) -> dict:
             warnings.append(f"Docker: {error}")
     return {
         "scannedAt": int(time.time()),
-        "listeners": limit_listeners(build_listeners(sockets, containers, describe_process, ignored), warnings),
+        "listeners": limit_listeners(build_listeners(sockets, containers, describe_process, ignored,
+                                                     wireguard_addresses()), warnings),
         "warnings": warnings,
     }
 

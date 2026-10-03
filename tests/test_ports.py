@@ -112,6 +112,54 @@ class ClassifyTests(unittest.TestCase):
             self.assertEqual(ports.classify(address), "network", address)
 
 
+class WireGuardTests(unittest.TestCase):
+    def test_vpn_addresses_are_overlay(self):
+        vpn = frozenset({"10.0.0.7", "fd00::7"})
+        self.assertEqual(ports.classify("10.0.0.7", vpn), "overlay")
+        self.assertEqual(ports.classify("fd00::7", vpn), "overlay")
+        # Other private addresses still reach the network.
+        self.assertEqual(ports.classify("10.0.0.8", vpn), "network")
+        self.assertEqual(ports.classify("0.0.0.0", vpn), "network")
+        self.assertEqual(ports.classify("127.0.0.1", vpn), "local")
+
+    def test_parse_interface_addresses(self):
+        text = ('[{"ifname":"wg0","addr_info":[{"family":"inet","local":"10.0.0.7","prefixlen":32},'
+                '{"family":"inet6","local":"fd00::7","prefixlen":128},{"local":"junk"}]}]')
+        self.assertEqual(ports.parse_interface_addresses(text), {"10.0.0.7", "fd00::7"})
+        for junk in ("", "not json", "{}", '[{"addr_info": "x"}]', "[1]"):
+            self.assertEqual(ports.parse_interface_addresses(junk), set(), junk)
+
+    def test_wireguard_interfaces_from_uevent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            for name, uevent in (("wg0", "DEVTYPE=wireguard\nINTERFACE=wg0\n"),
+                                 ("wlan0", "DEVTYPE=wlan\nINTERFACE=wlan0\n"),
+                                 ("eth0", "INTERFACE=eth0\n")):
+                Path(root, name).mkdir()
+                Path(root, name, "uevent").write_text(uevent)
+            Path(root, "broken").mkdir()  # no uevent
+            self.assertEqual(ports.wireguard_interfaces(root), ["wg0"])
+
+            calls = []
+
+            def run(argv, timeout):
+                calls.append(argv)
+                return ports.subprocess.CompletedProcess(
+                    argv, 0, '[{"addr_info":[{"local":"10.0.0.7"}]}]', "")
+
+            self.assertEqual(ports.wireguard_addresses(root, run), frozenset({"10.0.0.7"}))
+            self.assertEqual(calls, [["ip", "-j", "addr", "show", "dev", "wg0"]])
+
+    def test_build_listeners_scope_uses_vpn_addresses(self):
+        def describe(pid):
+            return None
+        socks = [sock(a, 22) for a in ("10.0.0.7", "127.0.0.1", "::1")]
+        [listener] = ports.build_listeners(socks, [], describe, set(), frozenset({"10.0.0.7"}))
+        self.assertEqual(listener["scope"], "overlay")
+        [listener] = ports.build_listeners(socks, [], describe, set())
+        self.assertEqual(listener["scope"], "network")
+
+
 class ParseSocketsTests(unittest.TestCase):
     def test_tcp_rows(self):
         self.assertEqual(ports.parse_sockets(SS_TCP, "tcp"), [
